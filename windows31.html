@@ -1528,3 +1528,480 @@ window.openApp = function(name){
   }
 };
 </script>
+<style>
+/* ===== STILI BLOCCO 5 ===== */
+.split { display:grid; grid-template-columns: 220px 1fr; gap:8px; }
+.tree, .list {
+  border:2px inset var(--win-light); background:#fff; min-height:260px; overflow:auto; font-size:13px;
+}
+.tree .node { padding:4px 6px; cursor:pointer; white-space:nowrap; }
+.tree .node .name { margin-left:4px; }
+.tree .node:hover { background:#e6e6e6; }
+.list .row { display:grid; grid-template-columns: 1fr 120px 80px; gap:6px; padding:4px 6px; border-bottom:1px solid #eee; cursor:pointer; }
+.list .row:hover { background:#f3f3f3; }
+.badge { font-size:11px; padding:1px 6px; border:1px solid #999; background:#eee; border-radius:3px; }
+.field { border:2px inset var(--win-light); background:#fff; padding:2px 4px; }
+.kv { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.small { font-size:12px; color:#333; }
+.netscape-chrome { display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+.netscape-chrome input[type="text"] { flex:1; }
+.terminal {
+  border:2px inset var(--win-light); background:#000; color:#0f0; font-family:monospace;
+  padding:6px; min-height:260px; overflow:auto; white-space:pre-wrap;
+}
+.term-input { width:100%; }
+.scale-preview { border:2px inset var(--win-light); background:#fff; padding:6px; font-size:12px; }
+</style>
+
+<script>
+/* =========================================================
+   ===============  SETTINGS (Control Panel)  ===============
+   ========================================================= */
+const DEFAULT_SETTINGS = {
+  wallpaper:'#008080',
+  scale: 1.0,
+  accent:'#000080',
+  light:'#dfdfdf',
+  dark:'#808080',
+  border:'#404040'
+};
+function loadSettings(){
+  try { return {...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('w31_settings')||'{}')}; }
+  catch{ return {...DEFAULT_SETTINGS}; }
+}
+function applySettings(s){
+  // Colori di tema
+  const root = document.documentElement;
+  root.style.setProperty('--win-blue', s.accent);
+  root.style.setProperty('--win-light', s.light);
+  root.style.setProperty('--win-dark',  s.dark);
+  root.style.setProperty('--win-border',s.border);
+  // scala UI
+  root.style.setProperty('--w31-scale', s.scale);
+  document.body.style.transformOrigin='top left';
+  document.body.style.transform = `scale(${s.scale})`;
+  // wallpaper
+  const desk=document.getElementById('desktop');
+  if(desk) desk.style.background = `${s.wallpaper} url('https://upload.wikimedia.org/wikipedia/commons/d/dc/Windows_3.1_wallpaper.svg') center/cover no-repeat`;
+}
+function saveSettings(s){ localStorage.setItem('w31_settings', JSON.stringify(s)); }
+const _w31_settings = loadSettings(); applySettings(_w31_settings);
+
+/* =========================================================
+   ==================  VFS (File System)  ==================
+   ========================================================= */
+function fsLoad(){
+  const raw = localStorage.getItem('w31_fs');
+  if(raw) try { return JSON.parse(raw); } catch {}
+  // FS iniziale
+  const fs = {
+    type:'dir', name:'C:', children:[
+      {type:'dir', name:'Documents', children:[
+        {type:'file', name:'readme.txt', mime:'text/plain', content:'Benvenuto in Windows 3.1 Web Edition!\n- Apri Notepad per modificare i .txt\n- Usa Write per HTML semplice\n- Prova il DOS: help, dir, cd, cls, echo, type, edit, mkdir, del, rename.'}
+      ]},
+      {type:'dir', name:'Games', children:[]},
+      {type:'dir', name:'Temp', children:[]}
+    ]
+  };
+  fsSave(fs); return fs;
+}
+function fsSave(fs){ localStorage.setItem('w31_fs', JSON.stringify(fs)); }
+function fsPathParts(path){
+  // es: C:/Documents/file.txt
+  return path.replace(/\\/g,'/').split('/').filter(Boolean);
+}
+function fsGetNode(path, fs=fsLoad()){
+  const parts = fsPathParts(path);
+  let cur = fs;
+  for(let i=1;i<parts.length;i++){
+    const name = parts[i];
+    if(!cur.children) return null;
+    cur = cur.children.find(ch=>ch.name===name);
+    if(!cur) return null;
+  }
+  return cur;
+}
+function fsList(path){
+  const n = fsGetNode(path); if(!n || n.type!=='dir') return [];
+  return n.children.map(ch => ({...ch}));
+}
+function fsMkdir(path, name){
+  const dir = fsGetNode(path); if(!dir || dir.type!=='dir') return false;
+  if(dir.children.find(c=>c.name===name)) return false;
+  dir.children.push({type:'dir', name, children:[]}); fsSave(fsLoad()); // re-load to keep external ref fresh
+  const fs2=fsLoad(); // ensure persistence
+  return true;
+}
+function fsCreateFile(path, name, mime='text/plain', content=''){
+  const dir = fsGetNode(path); if(!dir || dir.type!=='dir') return false;
+  if(dir.children.find(c=>c.name===name)) return false;
+  dir.children.push({type:'file', name, mime, content});
+  fsSave(fsLoad()); return true;
+}
+function fsDelete(path){
+  // delete node at path
+  const parts = fsPathParts(path); if(parts.length<2) return false;
+  const parentPath = parts.slice(0,-1).join('/');
+  const parent = fsGetNode(parentPath); if(!parent||parent.type!=='dir') return false;
+  const name = parts[parts.length-1];
+  parent.children = parent.children.filter(c=>c.name!==name);
+  fsSave(fsLoad()); return true;
+}
+function fsRename(path, newName){
+  const node = fsGetNode(path); if(!node) return false;
+  node.name = newName; fsSave(fsLoad()); return true;
+}
+function fsWriteFile(path, content){
+  const node = fsGetNode(path); if(!node || node.type!=='file') return false;
+  node.content = content; fsSave(fsLoad()); return true;
+}
+function fsReadFile(path){
+  const node = fsGetNode(path); if(!node || node.type!=='file') return null;
+  return node.content;
+}
+
+/* =========================================================
+   ===================  FILE MANAGER  ======================
+   ========================================================= */
+function openFileMan(){
+  const id='app_fileman';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const content = `
+    <div class="toolbar">
+      <button onclick="fmNewFolder('${id}')">New Folder</button>
+      <button onclick="fmNewFile('${id}')">New File</button>
+      <button onclick="fmRename('${id}')">Rename</button>
+      <button onclick="fmDelete('${id}')">Delete</button>
+      <button onclick="fmOpen('${id}')">Open</button>
+      <span class="small">Path:</span>
+      <input id="${id}_path" class="field" value="C:/" style="width:180px">
+      <button onclick="fmGo('${id}')">Go</button>
+    </div>
+    <div class="split">
+      <div class="tree" id="${id}_tree"></div>
+      <div class="list" id="${id}_list"></div>
+    </div>
+  `;
+  makeWindow('File Manager', content, id);
+  const state = window['_fm_'+id] = { path:'C:/', selected:null };
+
+  function renderTree(){
+    const fs = fsLoad();
+    const el = document.getElementById(id+'_tree'); el.innerHTML='';
+    function nodeHTML(node, base){
+      const path = base+'/'+node.name;
+      const row = document.createElement('div');
+      row.className='node';
+      row.innerHTML = (node.type==='dir'?'📁':'📄')+` <span class="name">${node.name}</span>`;
+      row.addEventListener('click', ()=>{
+        if(node.type==='dir'){ state.path = path.replace('C:/C:','C:'); document.getElementById(id+'_path').value=state.path; renderList(); }
+        else { state.selected = path; highlightList(path); }
+      });
+      el.appendChild(row);
+      if(node.type==='dir' && node.children){
+        const children = document.createElement('div'); children.style.marginLeft='16px';
+        el.appendChild(children);
+        node.children.forEach(ch=>{
+          // render child into 'children'
+          const savedEl = el; el = children; nodeHTML(ch, path); el = savedEl;
+        });
+      }
+    }
+    nodeHTML(fs,'');
+  }
+  function renderList(){
+    const list = document.getElementById(id+'_list'); list.innerHTML='';
+    const items = fsList(state.path);
+    const head = document.createElement('div');
+    head.className='row'; head.style.fontWeight='bold'; head.style.background='#f0f0f0';
+    head.innerHTML=`<div>Nome</div><div>Tipo</div><div>Azioni</div>`;
+    list.appendChild(head);
+
+    items.forEach(it=>{
+      const row=document.createElement('div'); row.className='row'; row.dataset.name=it.name;
+      row.innerHTML = `
+        <div>${it.type==='dir'?'📁':'📄'} ${it.name}</div>
+        <div>${it.type==='dir'?'Folder':(it.mime||'file')}</div>
+        <div><span class="badge">Apri</span></div>
+      `;
+      row.addEventListener('click', ()=>{ state.selected = state.path + (state.path.endsWith('/')?'':'/') + it.name; highlightList(state.selected); });
+      row.addEventListener('dblclick', ()=>{
+        if(it.type==='dir'){ state.path = state.path.replace(/\/?$/,'/') + it.name; document.getElementById(id+'_path').value=state.path; renderList(); }
+        else fmOpen(id);
+      });
+      list.appendChild(row);
+    });
+  }
+  function highlightList(selPath){
+    document.querySelectorAll('#'+id+'_list .row').forEach(r=>r.style.outline='none');
+    const name = selPath.split('/').pop();
+    const hit = [...document.querySelectorAll('#'+id+'_list .row')].find(r=>r.dataset.name===name);
+    if(hit) hit.style.outline='2px dashed #888';
+  }
+
+  window['fmGo']=(who)=>{ if(who!==id) return; const p=document.getElementById(id+'_path').value; if(fsGetNode(p)) { state.path=p; renderList(); } };
+  window['fmNewFolder']=(who)=>{ if(who!==id) return; const n=prompt('Folder name'); if(!n) return; if(!fsMkdir(state.path,n)) alert('Impossibile creare la cartella'); renderTree(); renderList(); };
+  window['fmNewFile']=(who)=>{ if(who!==id) return; const n=prompt('File name (es. note.txt)'); if(!n) return; const mime=n.endsWith('.html')?'text/html':'text/plain'; if(!fsCreateFile(state.path,n,mime,'')) alert('Impossibile creare il file'); renderTree(); renderList(); };
+  window['fmRename']=(who)=>{ if(who!==id) return; if(!state.selected) return alert('Seleziona un elemento'); const newName=prompt('Nuovo nome', state.selected.split('/').pop()); if(!newName) return; const parent=state.selected.split('/').slice(0,-1).join('/'); fsRename(state.selected,newName); state.selected=parent+'/'+newName; renderTree(); renderList(); };
+  window['fmDelete']=(who)=>{ if(who!==id) return; if(!state.selected) return alert('Seleziona un elemento'); if(confirm('Eliminare?')){ fsDelete(state.selected); state.selected=null; renderTree(); renderList(); } };
+  window['fmOpen']=(who)=>{
+    if(who!==id) return; if(!state.selected) return alert('Seleziona un elemento');
+    const node = fsGetNode(state.selected);
+    if(node.type==='dir'){ state.path=state.selected; document.getElementById(id+'_path').value=state.path; renderList(); return; }
+    // file
+    if(node.mime==='text/plain'){
+      openNotepad(); setTimeout(()=>{
+        const idn='app_notepad';
+        document.getElementById(idn+'_filename').value = node.name;
+        document.getElementById(idn+'_area').value = node.content||'';
+      },10);
+    } else if(node.mime==='text/html'){
+      openWrite(); setTimeout(()=>{
+        const idw='app_write';
+        document.getElementById(idw+'_pad').innerHTML = node.content||'';
+      },10);
+    } else {
+      alert('Tipo non supportato in questa versione.');
+    }
+  };
+
+  renderTree(); renderList();
+}
+
+/* =========================================================
+   ===================  CONTROL PANEL  =====================
+   ========================================================= */
+function openControl(){
+  const id='app_control';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+  const s = loadSettings();
+  const content = `
+    <div class="toolbar">
+      <button onclick="cpApply('${id}')">Apply</button>
+      <button onclick="cpSave('${id}')">Save</button>
+      <button onclick="cpReset('${id}')">Reset</button>
+    </div>
+    <div class="kv">
+      <label>Wallpaper color <input type="color" id="${id}_wall" value="${s.wallpaper}"></label>
+      <label>Accent <input type="color" id="${id}_acc" value="${s.accent}"></label>
+      <label>Light <input type="color" id="${id}_light" value="${s.light}"></label>
+      <label>Dark <input type="color" id="${id}_dark" value="${s.dark}"></label>
+      <label>Border <input type="color" id="${id}_border" value="${s.border}"></label>
+      <label>Scale <input type="range" id="${id}_scale" min="0.8" max="1.6" step="0.05" value="${s.scale}"></label>
+    </div>
+    <div class="separator"></div>
+    <div class="scale-preview">Anteprima dimensioni UI. Trascina finestre per verificare.</div>
+  `;
+  makeWindow('Control Panel', content, id);
+  window['cpApply']=(who)=>{
+    if(who!==id) return;
+    const ns = {
+      wallpaper: document.getElementById(id+'_wall').value,
+      accent: document.getElementById(id+'_acc').value,
+      light: document.getElementById(id+'_light').value,
+      dark: document.getElementById(id+'_dark').value,
+      border: document.getElementById(id+'_border').value,
+      scale: parseFloat(document.getElementById(id+'_scale').value)
+    };
+    applySettings(ns);
+  };
+  window['cpSave']=(who)=>{
+    if(who!==id) return;
+    const ns = {
+      wallpaper: document.getElementById(id+'_wall').value,
+      accent: document.getElementById(id+'_acc').value,
+      light: document.getElementById(id+'_light').value,
+      dark: document.getElementById(id+'_dark').value,
+      border: document.getElementById(id+'_border').value,
+      scale: parseFloat(document.getElementById(id+'_scale').value)
+    };
+    saveSettings(ns); alert('Impostazioni salvate.');
+  };
+  window['cpReset']=(who)=>{ if(who!==id) return; applySettings(DEFAULT_SETTINGS); saveSettings(DEFAULT_SETTINGS); };
+}
+
+/* =========================================================
+   ====================  MS-DOS PROMPT  ====================
+   ========================================================= */
+function openDOS(){
+  const id='app_dos';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+  const content = `
+    <div class="terminal" id="${id}_term"></div>
+    <div class="toolbar">
+      <input id="${id}_cmd" class="field term-input" placeholder="C:\\>">
+      <button onclick="dosExec('${id}')">Run</button>
+      <button onclick="dosClear('${id}')">CLS</button>
+    </div>
+  `;
+  makeWindow('MS-DOS Prompt', content, id);
+  const st = window['_dos_'+id] = { cwd:'C:/' };
+  const out = (txt)=>{ const t=document.getElementById(id+'_term'); t.textContent += txt; t.scrollTop = t.scrollHeight; };
+
+  out('Microsoft(R) MS-DOS(R) Version 6.22\n(C)Copyright Microsoft Corp 1981-1994.\n\n');
+  prompt();
+
+  function prompt(){ out(st.cwd+'>'); }
+
+  window['dosClear']=(who)=>{ if(who!==id) return; document.getElementById(id+'_term').textContent=''; prompt(); };
+  window['dosExec']=(who)=>{
+    if(who!==id) return;
+    const box=document.getElementById(id+'_cmd');
+    const line=box.value.trim(); box.value='';
+    out(line+'\n');
+    run(line);
+    prompt();
+  };
+
+  function run(line){
+    const [cmd, ...rest] = line.split(' ');
+    const arg = rest.join(' ').trim();
+    switch((cmd||'').toLowerCase()){
+      case 'help':
+        out('Comandi: HELP, DIR, CD, CLS, ECHO, TYPE <file>, EDIT <file>, MKDIR <name>, DEL <name>, RENAME <old> <new>, START NETSCAPE <url>\n'); break;
+      case 'cls':
+        document.getElementById(id+'_term').textContent=''; break;
+      case 'dir':
+        fsList(st.cwd).forEach(it=> out((it.type==='dir'?'[DIR] ':'      ') + it.name + '\n')); break;
+      case 'cd':
+        if(!arg){ break; }
+        let newPath = arg.match(/^[A-Za-z]:/) ? arg : st.cwd.replace(/\/?$/,'/')+arg;
+        if(!newPath.endsWith('/')) newPath+='/';
+        if(fsGetNode(newPath)) st.cwd = newPath; else out('Percorso non trovato.\n');
+        break;
+      case 'echo':
+        out(arg+'\n'); break;
+      case 'type':
+        if(!arg){ out('Specificare un file.\n'); break; }
+        const p = arg.match(/^[A-Za-z]:/) ? arg : st.cwd+arg;
+        const txt = fsReadFile(p);
+        if(txt==null) out('File non trovato.\n'); else out(txt+'\n');
+        break;
+      case 'edit':
+        if(!arg){ out('Specificare un file.\n'); break; }
+        const pf = arg.match(/^[A-Za-z]:/) ? arg : st.cwd+arg;
+        let node = fsGetNode(pf);
+        if(!node){ // crea file
+          const parent = pf.split('/').slice(0,-1).join('/');
+          const name = pf.split('/').pop();
+          fsCreateFile(parent,name,'text/plain','');
+          node = fsGetNode(pf);
+        }
+        openNotepad(); setTimeout(()=>{
+          const idn='app_notepad';
+          document.getElementById(idn+'_filename').value = node.name;
+          document.getElementById(idn+'_area').value = node.content||'';
+        },10);
+        break;
+      case 'mkdir':
+        if(!arg){ out('Specificare il nome cartella.\n'); break; }
+        if(!fsMkdir(st.cwd,arg)) out('Impossibile creare la cartella.\n');
+        break;
+      case 'del':
+        if(!arg){ out('Specificare file/cartella.\n'); break; }
+        const delp = st.cwd+arg;
+        if(!fsGetNode(delp)) out('Non trovato.\n'); else { fsDelete(delp); out('Eliminato.\n'); }
+        break;
+      case 'rename':
+        {
+          const parts = arg.split(/\s+/);
+          if(parts.length<2){ out('Uso: RENAME <vecchio> <nuovo>\n'); break; }
+          const oldp = st.cwd+parts[0];
+          if(!fsGetNode(oldp)) { out('Non trovato.\n'); break; }
+          fsRename(oldp, parts[1]); out('Rinominato.\n');
+        }
+        break;
+      case 'start':
+        if(rest[0] && rest[0].toLowerCase()==='netscape'){
+          const url = rest.slice(1).join(' ').trim() || 'https://example.com';
+          openNetscape(url);
+        } else {
+          out('Uso: START NETSCAPE <url>\n');
+        }
+        break;
+      case '':
+        break;
+      default:
+        out('Comando non riconosciuto.\n');
+    }
+  }
+}
+
+/* =========================================================
+   ====================  NETSCAPE REAL  ====================
+   ========================================================= */
+function openNetscape(initialUrl){
+  const id='app_netscape';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const content = `
+    <div class="netscape-chrome">
+      <button class="win-btn" onclick="nsBack('${id}')">◀</button>
+      <button class="win-btn" onclick="nsFwd('${id}')">▶</button>
+      <button class="win-btn" onclick="nsReload('${id}')">Reload</button>
+      <button class="win-btn" onclick="nsHome('${id}')">Home</button>
+      <input id="${id}_url" class="field" placeholder="https://..." value="${initialUrl?escapeHtml(initialUrl):'https://example.com'}">
+      <button class="win-btn" onclick="nsGo('${id}')">Go</button>
+    </div>
+    <div class="pad" style="padding:0;height:420px">
+      <iframe id="${id}_frame" style="border:0;width:100%;height:100%" sandbox=""></iframe>
+    </div>
+    <div id="${id}_warn" class="small" style="margin-top:4px;color:#333"></div>
+  `;
+  makeWindow('Netscape Navigator', content, id);
+
+  const st = window['_netscape_'+id] = { hist:[], i:-1, home:'https://example.com' };
+  const frame = document.getElementById(id+'_frame');
+
+  function normalized(u){
+    try{
+      let url=u.trim();
+      if(!/^https?:\/\//i.test(url)) url='https://'+url;
+      return new URL(url).toString();
+    }catch{ return 'https://example.com'; }
+  }
+  function load(u, push=true){
+    const url = normalized(u);
+    document.getElementById(id+'_url').value = url;
+    try {
+      frame.src = url;
+      // CSP/XFO: non possiamo conoscerlo a priori; mostriamo un avviso se carica in bianco
+      setTimeout(()=>{
+        const warn = document.getElementById(id+'_warn');
+        warn.innerHTML = 'Se il sito non appare, potrebbe bloccare l\'inclusione in iframe. <a target="_blank" href="'+url+'">Apri in nuova scheda</a>.';
+      }, 500);
+    } catch(e){}
+    if(push){
+      st.hist = st.hist.slice(0, st.i+1);
+      st.hist.push(url); st.i++;
+    }
+  }
+
+  window['nsGo']=(who)=>{ if(who!==id) return; load(document.getElementById(id+'_url').value,true); };
+  window['nsBack']=(who)=>{ if(who!==id) return; if(st.i>0){ st.i--; frame.src = st.hist[st.i]; document.getElementById(id+'_url').value=st.hist[st.i]; } };
+  window['nsFwd']=(who)=>{ if(who!==id) return; if(st.i<st.hist.length-1){ st.i++; frame.src = st.hist[st.i]; document.getElementById(id+'_url').value=st.hist[st.i]; } };
+  window['nsReload']=(who)=>{ if(who!==id) return; frame.src = document.getElementById(id+'_url').value; };
+  window['nsHome']=(who)=>{ if(who!==id) return; load(st.home,true); };
+
+  load(initialUrl||st.home,true);
+}
+function escapeHtml(s){ return s.replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+
+/* =========================================================
+   ===== WIRING openApp FINALE (Main/Accessori/Giochi) =====
+   ========================================================= */
+const _openAppPrev5 = window.openApp;
+window.openApp = function(name){
+  const winId='app_'+name;
+  if(document.getElementById(winId)){ bringToFront(winId); return; }
+  switch(name){
+    case 'fileman': openFileMan(); break;
+    case 'control': openControl(); break;
+    case 'dos': openDOS(); break;
+    case 'netscape': // icona desktop diretta
+    case 'netscape_app': openNetscape(); break;
+    default: _openAppPrev5(name);
+  }
+};
+</script>
