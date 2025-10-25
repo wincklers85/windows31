@@ -166,3 +166,228 @@ function openApp(name){
 </script>
 </body>
 </html>
+<style>
+/* ==== PROGRAM MANAGER (GRUPPI & ICONE) ==== */
+.prog-group {
+  display:grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px,1fr));
+  gap:8px; padding:6px;
+  background:var(--gray-bg);
+}
+.prog-icon {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  width:84px; height:84px; padding:6px;
+  border:2px solid transparent;
+  text-align:center; font-size:11px; color:black; line-height:1.2;
+}
+.prog-icon img { width:28px; height:28px; image-rendering: pixelated; margin-bottom:6px; }
+.prog-icon.selected {
+  border-top-color:var(--win-white);
+  border-left-color:var(--win-white);
+  border-right-color:var(--win-dark);
+  border-bottom-color:var(--win-dark);
+  background:var(--win-light);
+}
+.prog-icon:active { filter:brightness(1.1); }
+
+.win-buttons {
+  display:flex; gap:6px; flex-wrap:wrap; padding:6px;
+}
+.win-btn {
+  font-size:12px;
+  padding:3px 8px;
+  border:2px outset var(--win-light);
+  background:var(--gray-bg);
+}
+.win-btn:active { border:2px inset var(--win-light); }
+
+.separator {
+  height:2px; margin:6px 0;
+  border-top:2px solid var(--win-white);
+  border-bottom:2px solid var(--win-dark);
+}
+</style>
+
+<script>
+/* ==== UTILITY: DOPPIO TAP PER MOBILE ==== */
+function makeDoubleTap(el, onDouble){
+  let last=0, timer=null;
+  el.addEventListener('click', e=>{
+    const now=Date.now();
+    if(now-last<350){ // doppio-tap veloce
+      clearTimeout(timer); last=0; onDouble(e);
+    } else {
+      last=now;
+      // selezione visiva al primo tap
+      document.querySelectorAll('.prog-icon').forEach(i=>i.classList.remove('selected'));
+      if(el.classList.contains('prog-icon')) el.classList.add('selected');
+      // timeout per reset finestra di doppio tap
+      timer=setTimeout(()=>{ last=0; }, 380);
+    }
+  });
+  // supporto anche al doppio click desktop
+  el.addEventListener('dblclick', e=>{ e.preventDefault(); onDouble(e); });
+}
+
+/* ==== MIGLIORIA: PORTA IN PRIMO PIANO AL TOCCO ==== */
+document.addEventListener('pointerdown', e=>{
+  const w=e.target.closest('.window');
+  if(w){ w.style.zIndex=++z; }
+});
+
+/* ==== DATI DELLE ICONE CON IMMAGINI STILE 3.1/95 ==== */
+const ICONS = {
+  folder:'https://win98icons.alexmeub.com/icons/png/directory_open_file_mydocs-3.png',
+  fileman:'https://win98icons.alexmeub.com/icons/png/directory_open_file_mydocs-3.png',
+  control:'https://win98icons.alexmeub.com/icons/png/settings_gear-2.png',
+  dos:'https://win98icons.alexmeub.com/icons/png/ms_dos-0.png',
+  paint:'https://win98icons.alexmeub.com/icons/png/paint_file-1.png',
+  calc:'https://win98icons.alexmeub.com/icons/png/calculator-2.png',
+  clock:'https://win98icons.alexmeub.com/icons/png/clock-0.png',
+  notepad:'https://win98icons.alexmeub.com/icons/png/notepad-2.png',
+  charmap:'https://win98icons.alexmeub.com/icons/png/character_map-0.png',
+  write:'https://win98icons.alexmeub.com/icons/png/write_y-0.png',
+  sol:'https://win98icons.alexmeub.com/icons/png/solitaire-0.png',
+  mine:'https://win98icons.alexmeub.com/icons/png/minesweeper-0.png',
+  ski:'https://win98icons.alexmeub.com/icons/png/joystick-2.png',
+  netscape:'https://win98icons.alexmeub.com/icons/png/world_network_directories-4.png'
+};
+
+/* ==== GENERATORE DI FINESTRE-GRUPPO (Program Manager) ==== */
+function groupWindow(title, id, items){
+  if(document.getElementById('win_'+id)) { bringToFront('win_'+id); return; }
+
+  const grid = document.createElement('div');
+  grid.className='prog-group';
+  grid.setAttribute('role','list');
+
+  items.forEach(app=>{
+    const ic = document.createElement('div');
+    ic.className='prog-icon';
+    ic.setAttribute('role','listitem');
+    ic.setAttribute('tabindex','0');
+    ic.dataset.app = app.app;
+    ic.innerHTML = `<img alt="" src="${ICONS[app.icon]||ICONS.folder}"><div>${app.label}</div>`;
+
+    makeDoubleTap(ic, ()=>{
+      openApp(app.app);
+    });
+
+    ic.addEventListener('keydown', ev=>{
+      if(ev.key==='Enter'){ openApp(app.app); }
+    });
+
+    grid.appendChild(ic);
+  });
+
+  makeWindow(title, grid.outerHTML, 'win_'+id);
+}
+
+/* ==== PORTA UNA FINESTRA IN PRIMO PIANO SE ESISTE ==== */
+function bringToFront(id){
+  const w=document.getElementById(id);
+  if(!w) return;
+  w.style.zIndex=++z;
+}
+
+/* ==== SOSTITUISCI IL CONTENUTO DELLE ICONE DEL DESKTOP (Blocco 1) ==== */
+const DESKTOP_ICONS_MAP = {
+  main: {
+    title: 'Main',
+    items: [
+      {label:'File Manager', app:'fileman', icon:'fileman'},
+      {label:'Control Panel', app:'control', icon:'control'},
+      {label:'MS-DOS Prompt', app:'dos', icon:'dos'}
+    ]
+  },
+  accessories: {
+    title: 'Accessori',
+    items: [
+      {label:'Paintbrush', app:'paint', icon:'paint'},
+      {label:'Calculator', app:'calc', icon:'calc'},
+      {label:'Clock', app:'clock', icon:'clock'},
+      {label:'Notepad', app:'notepad', icon:'notepad'},
+      {label:'Character Map', app:'charmap', icon:'charmap'},
+      {label:'Write', app:'write', icon:'write'}
+    ]
+  },
+  games: {
+    title: 'Giochi',
+    items: [
+      {label:'Solitaire', app:'sol', icon:'sol'},
+      {label:'Minesweeper', app:'mine', icon:'mine'},
+      {label:'SkiFree', app:'ski', icon:'ski'}
+    ]
+  },
+  netscape: {
+    title: 'Netscape Navigator',
+    items: [
+      // lasceremo l’icona singola a scopo “about”, l’app vera sarà finestra dedicata
+      {label:'Apri Netscape', app:'netscape_app', icon:'netscape'}
+    ]
+  }
+};
+
+/* ==== WIRING: APERTURA ICONE DESKTOP COME FINESTRE-GRUPPO ==== */
+document.querySelectorAll('.icon').forEach(ic=>{
+  ic.replaceWith(ic.cloneNode(true)); // pulisci vecchi listeners dal Blocco 1
+});
+document.querySelectorAll('.icon').forEach(ic=>{
+  ic.addEventListener('dblclick', ()=>{
+    const id=ic.dataset.app;
+    const group = DESKTOP_ICONS_MAP[id];
+    if(!group){
+      // fallback: apri direttamente (Netscape)
+      openApp(id);
+      return;
+    }
+    groupWindow(group.title, id, group.items);
+  });
+  // doppio tap mobile
+  makeDoubleTap(ic, ()=>{
+    const id=ic.dataset.app;
+    const group = DESKTOP_ICONS_MAP[id];
+    if(!group){ openApp(id); return; }
+    groupWindow(group.title, id, group.items);
+  });
+});
+
+/* ==== MIGLIORA openApp PER APPLICAZIONI NON ANCORA IMPLEMENTATE ==== */
+const APP_TITLES = {
+  fileman:'File Manager',
+  control:'Control Panel',
+  dos:'MS-DOS Prompt',
+  paint:'Paintbrush',
+  calc:'Calculator',
+  clock:'Clock',
+  notepad:'Notepad',
+  charmap:'Character Map',
+  write:'Write',
+  sol:'Solitaire',
+  mine:'Minesweeper',
+  ski:'SkiFree',
+  netscape:'Netscape Navigator',
+  netscape_app:'Netscape Navigator'
+};
+
+const APP_LOADING = `
+  <div class="win-buttons">
+    <button class="win-btn" onclick="this.closest('.window').remove()">Close</button>
+    <button class="win-btn" onclick="alert('In arrivo nel Blocco successivo!')">Help</button>
+  </div>
+  <div class="separator"></div>
+  <div style="padding:8px;font-size:12px">
+    <b>Caricamento componente...</b><br>
+    Questa applicazione verrà attivata nei prossimi blocchi (funzionalità completa).
+  </div>
+`;
+
+// Sovrascrive la placeholder del Blocco 1 per dare titoli corretti
+window.openApp = function(name){
+  const winId = 'app_'+name;
+  if(document.getElementById(winId)){ bringToFront(winId); return; }
+  const title = APP_TITLES[name] || (name.charAt(0).toUpperCase()+name.slice(1));
+  makeWindow(title, APP_LOADING, winId);
+};
+
+</script>
