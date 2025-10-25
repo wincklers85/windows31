@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Windows 3.1 Web Edition</title>
+<style>
+/* ==== STILE GENERALE WINDOWS 3.1 ==== */
+:root {
+  --gray-bg:#c0c0c0; --win-blue:#000080; --win-light:#dfdfdf;
+  --win-dark:#808080; --win-border:#404040; --win-white:#ffffff;
+  font-family:"MS Sans Serif",Tahoma,system-ui;
+}
+body {
+  background:var(--gray-bg);
+  margin:0; overflow:hidden;
+  height:100vh; width:100vw;
+  user-select:none;
+}
+#desktop {
+  position:relative;
+  width:100%; height:100%;
+  background:#008080 url('https://upload.wikimedia.org/wikipedia/commons/d/dc/Windows_3.1_wallpaper.svg') center/cover no-repeat;
+}
+.window {
+  position:absolute;
+  background:var(--gray-bg);
+  border:2px solid var(--win-dark);
+  border-top-color:var(--win-white);
+  border-left-color:var(--win-white);
+  box-shadow:2px 2px 0 var(--win-border);
+  min-width:200px;
+}
+.titlebar {
+  background:var(--win-blue);
+  color:white;
+  padding:2px 4px;
+  font-weight:bold;
+  display:flex; justify-content:space-between; align-items:center;
+  cursor:move;
+}
+.titlebar button {
+  background:var(--gray-bg);
+  border:2px outset var(--win-light);
+  font-size:12px;
+  line-height:12px;
+  width:18px; height:18px;
+  padding:0; margin:0;
+}
+.content {padding:4px; background:var(--gray-bg);}
+.icon {
+  display:inline-block;
+  width:64px; text-align:center; color:white;
+  font-size:12px; margin:12px;
+}
+.icon img {width:32px; height:32px; display:block; margin:0 auto 4px;}
+.icon:active {filter:brightness(1.2);}
+#taskbar {
+  position:absolute; bottom:0; left:0; right:0;
+  height:22px;
+  background:var(--gray-bg);
+  border-top:2px solid var(--win-white);
+  border-bottom:2px solid var(--win-dark);
+  display:flex; align-items:center; padding:0 4px; gap:6px;
+  font-size:12px;
+}
+.taskbtn {
+  border:2px outset var(--win-light);
+  background:var(--gray-bg);
+  padding:2px 6px;
+}
+@media (max-width:800px){
+  .icon{width:52px;font-size:10px;margin:8px;}
+  .icon img{width:24px;height:24px;}
+}
+</style>
+</head>
+<body>
+<div id="desktop">
+  <!-- Icone principali -->
+  <div class="icon" data-app="main">
+    <img src="https://win98icons.alexmeub.com/icons/png/folder_programs-2.png">
+    <span>Main</span>
+  </div>
+  <div class="icon" data-app="accessories">
+    <img src="https://win98icons.alexmeub.com/icons/png/folder_open-1.png">
+    <span>Accessori</span>
+  </div>
+  <div class="icon" data-app="games">
+    <img src="https://win98icons.alexmeub.com/icons/png/folder_games-1.png">
+    <span>Giochi</span>
+  </div>
+  <div class="icon" data-app="netscape">
+    <img src="https://win98icons.alexmeub.com/icons/png/world_network_directories-4.png">
+    <span>Netscape</span>
+  </div>
+
+  <!-- Barra inferiore -->
+  <div id="taskbar"><b>Program Manager</b></div>
+</div>
+
+<script>
+/* ==== SISTEMA FINESTRE ==== */
+let z=10;
+
+function makeWindow(title,content,id){
+  const w=document.createElement('div');
+  w.className='window'; w.id=id;
+  w.style.left='60px'; w.style.top='60px';
+  w.style.zIndex=z++;
+  w.innerHTML=`<div class="titlebar">
+      <span>${title}</span>
+      <button onclick="this.closest('.window').remove()">×</button>
+    </div>
+    <div class="content">${content}</div>`;
+  document.getElementById('desktop').appendChild(w);
+  dragWindow(w);
+}
+
+function dragWindow(el){
+  const bar=el.querySelector('.titlebar');
+  let offX=0,offY=0,drag=false;
+  bar.addEventListener('pointerdown',e=>{
+    drag=true; offX=e.clientX-el.offsetLeft; offY=e.clientY-el.offsetTop;
+    el.style.zIndex=++z;
+  });
+  window.addEventListener('pointermove',e=>{
+    if(!drag)return;
+    el.style.left=(e.clientX-offX)+'px';
+    el.style.top=(e.clientY-offY)+'px';
+  });
+  window.addEventListener('pointerup',()=>drag=false);
+}
+
+/* ==== APERTURA DELLE ICONE ==== */
+const apps={
+  main:`<div><button onclick="openApp('fileman')">File Manager</button>
+        <button onclick="openApp('control')">Control Panel</button>
+        <button onclick="openApp('dos')">MS-DOS Prompt</button></div>`,
+  accessories:`<div><button onclick="openApp('paint')">Paintbrush</button>
+        <button onclick="openApp('calc')">Calculator</button>
+        <button onclick="openApp('clock')">Clock</button>
+        <button onclick="openApp('notepad')">Notepad</button>
+        <button onclick="openApp('charmap')">Character Map</button>
+        <button onclick="openApp('write')">Write</button></div>`,
+  games:`<div><button onclick="openApp('sol')">Solitaire</button>
+        <button onclick="openApp('mine')">Minesweeper</button>
+        <button onclick="openApp('ski')">SkiFree</button></div>`,
+  netscape:`<iframe srcdoc="<h3 style='font-family:sans-serif'>Netscape Navigator</h3>" width="300" height="200"></iframe>`
+};
+
+document.querySelectorAll('.icon').forEach(ic=>{
+  ic.addEventListener('dblclick',()=>{
+    const id=ic.dataset.app;
+    if(document.getElementById('win_'+id))return;
+    makeWindow(ic.querySelector('span').textContent,apps[id],'win_'+id);
+  });
+});
+
+/* Placeholder per app future */
+function openApp(name){
+  if(document.getElementById('app_'+name))return;
+  makeWindow(name.charAt(0).toUpperCase()+name.slice(1),
+             `<p>${name} in caricamento...</p>`,'app_'+name);
+}
+</script>
+</body>
+</html>
