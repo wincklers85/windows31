@@ -391,3 +391,1140 @@ window.openApp = function(name){
 };
 
 </script>
+<style>
+/* ==== STILI APP ==== */
+.toolbar {
+  display:flex; flex-wrap:wrap; gap:6px; padding:4px;
+  background:var(--gray-bg);
+  border:2px outset var(--win-light);
+  margin-bottom:6px;
+}
+.toolbar button, .toolbar input, .toolbar select, .toolbar label {
+  font-size:12px;
+  border:2px outset var(--win-light);
+  background:var(--gray-bg);
+  padding:2px 6px; margin:0;
+}
+.toolbar button:active { border:2px inset var(--win-light); }
+
+.pad {
+  border:2px inset var(--win-light);
+  background:#fff;
+  min-height:220px;
+  padding:6px; overflow:auto;
+  font-size:14px; line-height:1.4;
+}
+
+.calc {
+  width:260px; user-select:none;
+}
+.calc-display {
+  border:2px inset var(--win-light);
+  background:#000; color:#0f0; font-family:monospace;
+  font-size:18px; padding:6px; height:32px; display:flex; align-items:center; justify-content:flex-end;
+  overflow:hidden;
+}
+.calc-keys {
+  display:grid; grid-template-columns: repeat(4, 1fr);
+  gap:6px; margin-top:6px;
+}
+.calc-keys button { height:36px; }
+
+.clock-wrap {
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+}
+.clock-digital {
+  font-family:monospace; font-size:20px; padding:6px 10px;
+  border:2px inset var(--win-light); background:#000; color:#0f0; min-width:140px; text-align:center;
+}
+
+.paint-wrap { display:flex; gap:8px; flex-wrap:wrap; }
+.paint-canvas {
+  border:2px inset var(--win-light); background:#fff;
+  touch-action:none;
+}
+.color-swatch { width:18px; height:18px; border:1px solid #000; display:inline-block; margin:2px; cursor:pointer; }
+.size-dot { width:18px; height:18px; border:1px solid #000; display:inline-flex; align-items:center; justify-content:center; margin:2px; cursor:pointer; }
+.size-dot span { display:block; width:4px; height:4px; background:#000; border-radius:50%; }
+
+.charmap-grid {
+  display:grid; grid-template-columns: repeat(16, 1fr);
+  gap:2px; font-family:monospace;
+}
+.charmap-cell {
+  border:1px solid #777; background:#fff; text-align:center; padding:6px; cursor:pointer;
+}
+.charmap-cell:hover { background:#e6e6e6; }
+
+.write-pad {
+  border:2px inset var(--win-light);
+  background:#fff; min-height:260px; padding:8px; overflow:auto;
+}
+</style>
+
+<script>
+/* ========= NOTEPAD ========= */
+function openNotepad(){
+  const id='app_notepad';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const content = `
+    <div class="toolbar">
+      <button onclick="npNew('${id}')">New</button>
+      <button onclick="npOpen('${id}')">Open</button>
+      <button onclick="npSave('${id}')">Save</button>
+      <button onclick="npDownload('${id}')">Download</button>
+      <span style="margin-left:8px">File:&nbsp;<input id="${id}_filename" value="notes.txt" style="width:140px"></span>
+    </div>
+    <textarea id="${id}_area" class="pad" style="width:100%;height:300px" spellcheck="false"></textarea>
+  `;
+  makeWindow('Notepad', content, id);
+  // restore last
+  const last = localStorage.getItem('w31_notepad_autosave');
+  if(last) document.getElementById(id+'_area').value = last;
+  document.getElementById(id+'_area').addEventListener('input', ()=>{
+    localStorage.setItem('w31_notepad_autosave', document.getElementById(id+'_area').value);
+  });
+}
+function npNew(id){ document.getElementById(id+'_area').value=''; }
+function npOpen(id){
+  const input = document.createElement('input'); input.type='file'; input.accept='.txt,.md,.log,.csv,.json,text/plain';
+  input.onchange = async () => {
+    const f = input.files[0]; if(!f) return;
+    document.getElementById(id+'_filename').value = f.name;
+    const text = await f.text();
+    document.getElementById(id+'_area').value = text;
+    localStorage.setItem('w31_notepad_autosave', text);
+  };
+  input.click();
+}
+function npSave(id){
+  const name = document.getElementById(id+'_filename').value || 'notes.txt';
+  const text = document.getElementById(id+'_area').value;
+  localStorage.setItem('w31_notepad_'+name, text);
+  alert('Saved to localStorage as '+name);
+}
+function npDownload(id){
+  const name = document.getElementById(id+'_filename').value || 'notes.txt';
+  const text = document.getElementById(id+'_area').value;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+  a.download=name; a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ========= CALCULATOR ========= */
+function openCalc(){
+  const id='app_calc';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const keys = [
+    'MC','MR','M+','M-',
+    'C','⌫','%','/',
+    '7','8','9','*',
+    '4','5','6','-',
+    '1','2','3','+',
+    '0','.','(',')',
+    '+/-','='
+  ];
+  const grid = keys.map(k=>`<button onclick="calcKey('${k}')">${k}</button>`).join('');
+  const content = `
+    <div class="calc">
+      <div id="${id}_disp" class="calc-display">0</div>
+      <div class="calc-keys">${grid}</div>
+    </div>
+  `;
+  makeWindow('Calculator', content, id);
+  window._w31_calc = { buffer:'', mem:0, dispId:id+'_disp' };
+}
+function calcKey(k){
+  const st = window._w31_calc; const disp = document.getElementById(st.dispId);
+  const safe = /[0-9\.\+\-\*\/\%\(\)\s]/;
+  const set = v => (disp.textContent = v);
+  switch(k){
+    case 'C': st.buffer=''; set('0'); break;
+    case '⌫': st.buffer = st.buffer.slice(0,-1); set(st.buffer||'0'); break;
+    case '=':
+      try{
+        if(!/^[0-9\.\+\-\*\/\%\(\)\s]+$/.test(st.buffer)) throw 0;
+        const val = Function('return ('+st.buffer+')')();
+        set(String(val)); st.buffer=String(val);
+      }catch(e){ set('Error'); st.buffer=''; }
+      break;
+    case '+/-':
+      if(st.buffer.startsWith('-')) st.buffer = st.buffer.slice(1);
+      else st.buffer = '-'+st.buffer;
+      set(st.buffer); break;
+    case 'MC': st.mem=0; break;
+    case 'MR': st.buffer += String(st.mem); set(st.buffer); break;
+    case 'M+': try{ st.mem += Number(evalSafe(st.buffer)); }catch{} break;
+    case 'M-': try{ st.mem -= Number(evalSafe(st.buffer)); }catch{} break;
+    default:
+      if(k.length===1 && safe.test(k)) { st.buffer += k; set(st.buffer); }
+      else if(k==='%'||k==='/'||k==='*'||k==='-'||k==='+'){ st.buffer+=k; set(st.buffer); }
+  }
+}
+function evalSafe(expr){
+  if(!/^[0-9\.\+\-\*\/\%\(\)\s]+$/.test(expr)) throw 0;
+  return Function('return ('+expr+')')();
+}
+
+/* ========= CLOCK ========= */
+function openClock(){
+  const id='app_clock';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const content = `
+    <div class="clock-wrap">
+      <div id="${id}_digital" class="clock-digital">00:00:00</div>
+      <canvas id="${id}_analog" width="160" height="160" style="border:2px inset var(--win-light); background:#fff"></canvas>
+    </div>
+  `;
+  makeWindow('Clock', content, id);
+
+  function tick(){
+    const now=new Date();
+    const hh=String(now.getHours()).padStart(2,'0');
+    const mm=String(now.getMinutes()).padStart(2,'0');
+    const ss=String(now.getSeconds()).padStart(2,'0');
+    document.getElementById(id+'_digital').textContent = `${hh}:${mm}:${ss}`;
+    drawAnalog();
+  }
+  function drawAnalog(){
+    const c=document.getElementById(id+'_analog'); const g=c.getContext('2d');
+    const r=70; const cx=80, cy=80;
+    g.clearRect(0,0,c.width,c.height);
+    // circle
+    g.beginPath(); g.arc(cx,cy,r,0,Math.PI*2); g.stroke();
+    // marks
+    for(let i=0;i<60;i++){
+      const a = i*Math.PI/30;
+      const rr = (i%5===0)? r-8 : r-4;
+      g.beginPath();
+      g.moveTo(cx+rr*Math.sin(a), cy-rr*Math.cos(a));
+      g.lineTo(cx+r*Math.sin(a), cy-r*Math.cos(a));
+      g.stroke();
+    }
+    const now=new Date();
+    const h = now.getHours()%12 + now.getMinutes()/60;
+    const m = now.getMinutes() + now.getSeconds()/60;
+    const s = now.getSeconds();
+    // hands
+    hand(h*Math.PI/6, r*0.5, 4);
+    hand(m*Math.PI/30, r*0.7, 2);
+    hand(s*Math.PI/30, r*0.8, 1);
+    function hand(angle,len,w){
+      g.beginPath(); g.lineWidth=w;
+      g.moveTo(cx,cy);
+      g.lineTo(cx+len*Math.sin(angle), cy-len*Math.cos(angle));
+      g.stroke();
+    }
+  }
+  tick(); const t=setInterval(tick, 1000);
+  // stop when closed
+  const w=document.getElementById(id);
+  const obs = new MutationObserver(()=>{ if(!document.body.contains(w)) clearInterval(t); });
+  obs.observe(document.body,{childList:true,subtree:true});
+}
+
+/* ========= PAINTBRUSH ========= */
+function openPaint(){
+  const id='app_paint';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const colors = ['#000000','#808080','#C0C0C0','#FFFFFF','#800000','#FF0000','#808000','#FFFF00','#008000','#00FF00','#008080','#00FFFF','#000080','#0000FF','#800080','#FF00FF'];
+  const sizes = [2,4,6,10,16];
+
+  const content = `
+    <div class="toolbar">
+      <label>Color: <input type="color" id="${id}_color" value="#000000"></label>
+      <span id="${id}_palette">${colors.map(c=>`<span class="color-swatch" data-c="${c}" style="background:${c}"></span>`).join('')}</span>
+      <span style="margin-left:8px">Size:</span>
+      <span id="${id}_sizes">${sizes.map(s=>`<span class="size-dot" data-s="${s}"><span style="width:${s/2}px;height:${s/2}px"></span></span>`).join('')}</span>
+      <button onclick="paintMode('${id}','pen')">Pencil</button>
+      <button onclick="paintMode('${id}','eraser')">Eraser</button>
+      <button onclick="paintClear('${id}')">Clear</button>
+      <button onclick="paintSave('${id}')">Save PNG</button>
+    </div>
+    <div class="paint-wrap">
+      <canvas id="${id}_cv" class="paint-canvas" width="320" height="220"></canvas>
+    </div>
+  `;
+  makeWindow('Paintbrush', content, id);
+
+  const cv = document.getElementById(id+'_cv');
+  const g = cv.getContext('2d');
+  g.fillStyle = '#ffffff'; g.fillRect(0,0,cv.width,cv.height);
+
+  const state = { color:'#000000', size:4, mode:'pen', drawing:false, last:null };
+  document.getElementById(id+'_color').addEventListener('input', e=> state.color=e.target.value);
+  document.getElementById(id+'_palette').querySelectorAll('.color-swatch').forEach(el=>{
+    el.addEventListener('click', ()=>{ state.color = el.dataset.c; document.getElementById(id+'_color').value = state.color; });
+  });
+  document.getElementById(id+'_sizes').querySelectorAll('.size-dot').forEach(el=>{
+    el.addEventListener('click', ()=> state.size = Number(el.dataset.s));
+  });
+
+  const getPos = e=>{
+    const rect=cv.getBoundingClientRect();
+    const x = (e.touches? e.touches[0].clientX : e.clientX) - rect.left;
+    const y = (e.touches? e.touches[0].clientY : e.clientY) - rect.top;
+    return {x,y};
+  };
+  const drawTo = (p) =>{
+    if(!state.last) state.last=p;
+    g.lineCap='round'; g.lineJoin='round';
+    g.strokeStyle = (state.mode==='pen')? state.color : '#ffffff';
+    g.lineWidth = state.size;
+    g.beginPath();
+    g.moveTo(state.last.x, state.last.y);
+    g.lineTo(p.x, p.y);
+    g.stroke();
+    state.last = p;
+  };
+
+  cv.addEventListener('pointerdown', e=>{ state.drawing=true; state.last=null; drawTo(getPos(e)); });
+  cv.addEventListener('pointermove', e=>{ if(state.drawing) drawTo(getPos(e)); });
+  window.addEventListener('pointerup', ()=> state.drawing=false);
+
+  // touch support
+  cv.addEventListener('touchstart', e=>{ e.preventDefault(); state.drawing=true; state.last=null; drawTo(getPos(e)); }, {passive:false});
+  cv.addEventListener('touchmove', e=>{ e.preventDefault(); if(state.drawing) drawTo(getPos(e)); }, {passive:false});
+  window.addEventListener('touchend', ()=> state.drawing=false);
+
+  window['paintMode'] = (id,m)=>{ state.mode=m; };
+  window['paintClear'] = (id)=>{ g.fillStyle='#ffffff'; g.fillRect(0,0,cv.width,cv.height); };
+  window['paintSave'] = (id)=>{
+    const a=document.createElement('a'); a.href=cv.toDataURL('image/png'); a.download='paint.png'; a.click();
+    // autosave preview
+    localStorage.setItem('w31_paint_last', cv.toDataURL('image/png'));
+  };
+}
+
+/* ========= CHARACTER MAP ========= */
+function openCharMap(){
+  const id='app_charmap';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  let cells='';
+  for(let code=32; code<=255; code++){
+    const ch = String.fromCharCode(code);
+    cells += `<div class="charmap-cell" data-ch="${ch}">${ch}<br><span style="font-size:10px">(${code})</span></div>`;
+  }
+  const content = `
+    <div class="toolbar"><span>Click un carattere per copiarlo e inserirlo nel Notepad, se aperto.</span></div>
+    <div class="charmap-grid">${cells}</div>
+  `;
+  makeWindow('Character Map', content, id);
+
+  document.querySelectorAll('#'+id+' .charmap-cell').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      const ch = el.dataset.ch;
+      try{ await navigator.clipboard.writeText(ch); }catch{}
+      // inserisci in Notepad se aperto
+      const np = document.getElementById('app_notepad_area');
+      if(np) {
+        const ta=document.getElementById('app_notepad_area');
+        const start=ta.selectionStart, end=ta.selectionEnd;
+        ta.setRangeText(ch, start, end, 'end');
+        ta.dispatchEvent(new Event('input'));
+      }else{
+        alert('Copiato: "'+ch+'" (apri Notepad per incollarlo).');
+      }
+    });
+  });
+}
+
+/* ========= WRITE (mini word processor) ========= */
+function openWrite(){
+  const id='app_write';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const content = `
+    <div class="toolbar">
+      <button onclick="wrCmd('${id}','bold')"><b>B</b></button>
+      <button onclick="wrCmd('${id}','italic')"><i>I</i></button>
+      <button onclick="wrCmd('${id}','underline')"><u>U</u></button>
+      <select onchange="wrFont('${id}',this.value)">
+        <option value="">Font</option>
+        <option>Times New Roman</option>
+        <option>Courier New</option>
+        <option>Arial</option>
+      </select>
+      <select onchange="wrSize('${id}',this.value)">
+        <option value="">Size</option>
+        <option value="2">Small</option>
+        <option value="3">Normal</option>
+        <option value="4">Large</option>
+        <option value="5">XL</option>
+      </select>
+      <input type="color" onchange="wrColor('${id}',this.value)">
+      <button onclick="wrDownload('${id}')">Download</button>
+    </div>
+    <div id="${id}_pad" class="write-pad" contenteditable="true"></div>
+  `;
+  makeWindow('Write', content, id);
+}
+function wrCmd(id,cmd){ document.execCommand(cmd,false,null); }
+function wrFont(id,val){ if(val) document.execCommand('fontName',false,val); }
+function wrSize(id,val){ if(val) document.execCommand('fontSize',false,val); }
+function wrColor(id,val){ document.execCommand('foreColor',false,val); }
+function wrDownload(id){
+  const html = document.getElementById(id+'_pad').innerHTML;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(["<html><body>"+html+"</body></html>"],{type:'text/html'}));
+  a.download='document.html'; a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ========= WIRING OPENAPP PER QUESTE APP ========= */
+const _openAppPrev = window.openApp;
+window.openApp = function(name){
+  const winId='app_'+name;
+  if(document.getElementById(winId)){ bringToFront(winId); return; }
+  switch(name){
+    case 'notepad': openNotepad(); break;
+    case 'calc': openCalc(); break;
+    case 'clock': openClock(); break;
+    case 'paint': openPaint(); break;
+    case 'charmap': openCharMap(); break;
+    case 'write': openWrite(); break;
+    default: _openAppPrev(name);
+  }
+};
+</script>
+<style>
+/* ====== STILI GIOCHI ====== */
+/* Minesweeper */
+.ms-wrap { display:inline-block; padding:6px; background:var(--gray-bg); }
+.ms-top {
+  display:flex; justify-content:space-between; align-items:center; gap:8px;
+  margin-bottom:6px;
+}
+.ms-display {
+  border:2px inset var(--win-light); background:#000; color:#0f0;
+  font-family:monospace; font-size:16px; padding:4px 8px; min-width:60px; text-align:right;
+}
+.ms-grid {
+  display:grid; gap:2px; background:var(--win-dark); padding:2px;
+  border-top:2px solid var(--win-white);
+  border-left:2px solid var(--win-white);
+  border-bottom:2px solid var(--win-dark);
+  border-right:2px solid var(--win-dark);
+  touch-action: manipulation;
+}
+.ms-cell {
+  width:26px; height:26px; display:flex; align-items:center; justify-content:center;
+  font-weight:bold; user-select:none; cursor:pointer; font-family:monospace;
+  border-top:2px solid var(--win-white);
+  border-left:2px solid var(--win-white);
+  border-bottom:2px solid var(--win-dark);
+  border-right:2px solid var(--win-dark);
+  background:var(--gray-bg);
+}
+.ms-cell.open {
+  border:1px solid #808080; background:#c9c9c9;
+}
+.ms-cell.flag::after { content:"🚩"; font-size:14px; }
+.ms-cell.mine::after { content:"💣"; }
+
+/* SkiFree */
+.ski-toolbar { display:flex; gap:6px; margin-bottom:6px; }
+.ski-canvas { border:2px inset var(--win-light); background:#e6f2ff; }
+
+/* Solitaire (Klondike “lite”) */
+.sol-wrap { user-select:none; }
+.sol-toolbar { display:flex; gap:6px; margin-bottom:6px; }
+.sol-table {
+  width:100%; max-width:860px;
+  border:2px inset var(--win-light);
+  background: #0b6f53;
+  padding:8px;
+}
+.row { display:flex; gap:8px; }
+.pile, .stock, .waste, .foundation {
+  width:96px; min-height:120px; background:rgba(255,255,255,0.08);
+  border:2px dashed rgba(255,255,255,0.35); position:relative; border-radius:4px;
+}
+.card {
+  width:96px; height:140px; background:#fff; border-radius:6px; border:1px solid #333;
+  position:absolute; left:0; top:0; box-shadow:2px 2px rgba(0,0,0,.25);
+  display:flex; flex-direction:column; justify-content:space-between; padding:6px;
+  font-family:system-ui, Arial; font-weight:bold;
+  touch-action:none;
+}
+.card.back { background:linear-gradient(45deg,#004,#228); color:#fff; border-color:#001; }
+.card .rank { font-size:18px; }
+.card .suit { font-size:18px; }
+.red { color:#d11; } .black { color:#111; }
+.faceup { }
+.grab { outline:2px dashed #ffd54f; }
+</style>
+
+<script>
+/* =========================================================
+   ===============   MINESWEEPER (W31)   ===================
+   ========================================================= */
+function openMine(){
+  const id='app_mine';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const content = `
+    <div class="ms-wrap">
+      <div class="ms-top">
+        <div>
+          <label>Size:
+            <select id="${id}_size">
+              <option value="9x9x10">Beginner 9x9 (10)</option>
+              <option value="16x16x40">Intermediate 16x16 (40)</option>
+              <option value="16x30x99">Expert 30x16 (99)</option>
+            </select>
+          </label>
+        </div>
+        <div class="ms-display" id="${id}_flags">010</div>
+        <button class="win-btn" onclick="msRestart('${id}')">Restart</button>
+        <div class="ms-display" id="${id}_time">000</div>
+        <button class="win-btn" onclick="msToggleFlagMode('${id}')">Flag: <span id="${id}_flagmode">OFF</span></button>
+      </div>
+      <div id="${id}_grid" class="ms-grid"></div>
+      <div style="margin-top:6px;font-size:12px">Suggerimento (mobile): attiva <b>Flag</b> per posizionare bandierine.</div>
+    </div>
+  `;
+  makeWindow('Minesweeper', content, id);
+
+  const st = (window._ms = {
+    id, w:9, h:9, mines:10, grid:[], started:false, over:false, flags:0, t:0, timer:null, flagMode:false
+  });
+
+  document.getElementById(id+'_size').addEventListener('change', ()=>{
+    const [h, w, m] = document.getElementById(id+'_size').value.split('x').map(n=>parseInt(n,10));
+    st.h=h; st.w=w; st.mines=m; msBuild(id);
+  });
+
+  msBuild(id);
+  function setHUD(){
+    document.getElementById(id+'_flags').textContent = String(st.mines - st.flags).padStart(3,'0');
+    document.getElementById(id+'_time').textContent = String(st.t).padStart(3,'0');
+  }
+  function tick(){
+    st.t++; setHUD();
+  }
+  function startTimer(){
+    if(st.timer) return; st.timer = setInterval(tick,1000);
+  }
+
+  function createCells(){
+    st.grid = new Array(st.h*st.w).fill(0).map(()=>({mine:false,open:false,flag:false,count:0}));
+  }
+  function placeMines(skipIndex){
+    let left = st.mines;
+    while(left>0){
+      const i = Math.floor(Math.random()*st.grid.length);
+      if(i===skipIndex) continue;
+      if(st.grid[i].mine) continue;
+      st.grid[i].mine=true; left--;
+    }
+    // counts
+    for(let y=0;y<st.h;y++){
+      for(let x=0;x<st.w;x++){
+        const i = y*st.w+x; if(st.grid[i].mine) continue;
+        st.grid[i].count = neighbors(x,y).filter(j=>st.grid[j].mine).length;
+      }
+    }
+  }
+  function neighbors(x,y){
+    const res=[];
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+      if(dx===0&&dy===0) continue;
+      const nx=x+dx, ny=y+dy;
+      if(nx>=0&&ny>=0&&nx<st.w&&ny<st.h) res.push(ny*st.w+nx);
+    }
+    return res;
+  }
+
+  function render(){
+    const g = document.getElementById(id+'_grid');
+    g.style.gridTemplateColumns = `repeat(${st.w}, 26px)`;
+    g.innerHTML='';
+    st.grid.forEach((cell, idx)=>{
+      const d = document.createElement('div');
+      d.className='ms-cell';
+      d.dataset.i=idx;
+      if(cell.open) d.classList.add('open');
+      if(cell.flag) d.classList.add('flag');
+      if(cell.open && cell.mine) d.classList.add('mine');
+
+      if(cell.open && !cell.mine && cell.count>0){
+        d.textContent = cell.count;
+        d.style.color = ['#0000ff','#008000','#ff0000','#000080','#800000','#008080','#000000','#808080'][cell.count-1];
+      }
+
+      d.addEventListener('contextmenu', e=>{ e.preventDefault(); toggleFlag(idx); });
+      d.addEventListener('click', ()=>{
+        if(st.flagMode){ toggleFlag(idx); return; }
+        msOpen(idx,true);
+      });
+
+      g.appendChild(d);
+    });
+    setHUD();
+  }
+
+  function toggleFlag(i){
+    if(st.over) return;
+    const c=st.grid[i];
+    if(c.open) return;
+    c.flag=!c.flag;
+    st.flags += c.flag? 1 : -1;
+    render();
+  }
+
+  function msOpen(i, first=false){
+    if(st.over) return;
+    const c=st.grid[i];
+    if(c.flag||c.open) return;
+    if(first && !st.started){
+      // prima apertura: posiziona mine evitando questo indice
+      placeMines(i);
+      st.started=true; startTimer();
+    }
+    c.open=true;
+    if(c.mine){
+      gameOver(false);
+    }else{
+      if(c.count===0){
+        flood(i);
+      }
+      checkWin();
+    }
+    render();
+  }
+
+  function flood(i){
+    const seen=new Set([i]);
+    const queue=[i];
+    while(queue.length){
+      const k=queue.shift();
+      const x=k%st.w, y=(k/st.w|0);
+      neighbors(x,y).forEach(j=>{
+        if(seen.has(j)) return;
+        const cc=st.grid[j];
+        if(cc.flag||cc.open) return;
+        cc.open=true;
+        seen.add(j);
+        if(!cc.mine && cc.count===0) queue.push(j);
+      });
+    }
+  }
+
+  function checkWin(){
+    const opened = st.grid.filter(c=>c.open&&!c.mine).length;
+    const totalSafe = st.w*st.h - st.mines;
+    if(opened===totalSafe){
+      gameOver(true);
+    }
+  }
+  function gameOver(win){
+    st.over=true;
+    clearInterval(st.timer);
+    // rivela tutte
+    st.grid.forEach(c=>{ if(c.mine) c.open=true; });
+    render();
+    setTimeout(()=>alert(win? 'Hai vinto! 🎉' : 'Boom! 💥'), 50);
+  }
+
+  window.msRestart = (id2)=>{
+    if(id2!==id) return;
+    clearInterval(st.timer); st.timer=null; st.t=0; st.flags=0; st.started=false; st.over=false;
+    msBuild(id);
+  };
+  window.msToggleFlagMode = (id2)=>{
+    if(id2!==id) return;
+    st.flagMode = !st.flagMode;
+    document.getElementById(id+'_flagmode').textContent = st.flagMode? 'ON':'OFF';
+  };
+  function msBuild(){
+    createCells(); render();
+  }
+}
+
+/* =========================================================
+   =================    SKIFREE (W31)    ===================
+   ========================================================= */
+function openSki(){
+  const id='app_ski';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const content = `
+    <div class="ski-toolbar">
+      <button class="win-btn" onclick="skiStart('${id}')">Start</button>
+      <button class="win-btn" onclick="skiPause('${id}')">Pause</button>
+      <div class="ms-display" id="${id}_score">0000</div>
+      <div style="font-size:12px">Controlli: ← → per sterzare, ↑ per saltare. Su mobile: trascina a sinistra/destra, tocca per saltare.</div>
+    </div>
+    <canvas id="${id}_cv" class="ski-canvas" width="360" height="480"></canvas>
+  `;
+  makeWindow('SkiFree', content, id);
+
+  const cv=document.getElementById(id+'_cv'), g=cv.getContext('2d');
+  const st = (window['_ski_'+id] = {
+    running:false, score:0, t:0,
+    skier:{x:cv.width/2, y:80, vx:0, jumping:0},
+    trees:[], rocks:[], yeti:null, lastTouch:null
+  });
+
+  function reset(){
+    st.score=0; st.t=0; st.skier={x:cv.width/2,y:80,vx:0,jumping:0};
+    st.trees=[]; st.rocks=[]; st.yeti=null;
+  }
+
+  function spawn(){
+    // generatore piste scorrevoli
+    if(Math.random()<0.2) st.trees.push({x:Math.random()*cv.width, y:cv.height+20});
+    if(Math.random()<0.08) st.rocks.push({x:Math.random()*cv.width, y:cv.height+20});
+    if(st.t>1200 && !st.yeti && Math.random()<0.02) st.yeti={x:Math.random()*cv.width,y:cv.height+40,vy:-2.2};
+  }
+
+  function draw(){
+    g.fillStyle='#e6f2ff'; g.fillRect(0,0,cv.width,cv.height);
+    // neve che scorre
+    g.strokeStyle='#cfe4ff';
+    for(let i=0;i<12;i++){ g.beginPath(); g.moveTo(0,i*40 - (st.t%40)); g.lineTo(cv.width,i*40 - (st.t%40)); g.stroke(); }
+
+    // ostacoli
+    st.trees.forEach(o=>{ o.y-=2; g.fillStyle='#084'; g.fillRect(o.x-6,o.y-14,12,14); g.fillStyle='#063'; g.fillRect(o.x-3,o.y-22,6,8); });
+    st.rocks.forEach(o=>{ o.y-=2; g.fillStyle='#666'; g.beginPath(); g.arc(o.x,o.y,6,0,Math.PI*2); g.fill(); });
+
+    // yeti
+    if(st.yeti){
+      st.yeti.y += st.yeti.vy;
+      g.fillStyle='#999'; g.fillRect(st.yeti.x-10, st.yeti.y-14, 20, 28);
+      g.fillStyle='#000'; g.fillRect(st.yeti.x-6, st.yeti.y-6, 12, 4);
+      // inseguimento verso lo sciatore
+      if(st.yeti.y < st.skier.y) st.yeti.vy = 1.8;
+      st.yeti.x += Math.sign(st.skier.x - st.yeti.x)*1.4;
+      // collisione con skier = game over
+      if(Math.hypot(st.yeti.x-st.skier.x, st.yeti.y-st.skier.y) < 14){
+        st.running=false; alert('Abominevole Uomo delle Nevi ti ha preso! 🧟‍♂️');
+      }
+    }
+
+    // skier
+    st.skier.x += st.skier.vx;
+    st.skier.x = Math.max(10, Math.min(cv.width-10, st.skier.x));
+    if(st.skier.jumping>0) st.skier.jumping--;
+
+    // disegno sciatore
+    const y=st.skier.y;
+    g.fillStyle='#222'; // sci
+    g.fillRect(st.skier.x-12, y+10, 24, 3);
+    g.fillStyle='#d11'; // corpo
+    g.fillRect(st.skier.x-6, y-8-(st.skier.jumping?6:0), 12, 18);
+    g.fillStyle='#000'; // testa
+    g.beginPath(); g.arc(st.skier.x, y-12-(st.skier.jumping?6:0), 5, 0, Math.PI*2); g.fill();
+
+    // collisioni con ostacoli se non in salto
+    if(st.skier.jumping===0){
+      for(const o of st.trees) if(Math.abs(o.x-st.skier.x)<10 && Math.abs(o.y-st.skier.y)<14){ st.running=false; alert('Hai preso un albero! 🌲'); }
+      for(const o of st.rocks) if(Math.abs(o.x-st.skier.x)<9 && Math.abs(o.y-st.skier.y)<9){ st.running=false; alert('Hai preso una roccia! 🪨'); }
+    }
+
+    st.score++; st.t++;
+    document.getElementById(id+'_score').textContent = String(st.score).padStart(4,'0');
+  }
+
+  function loop(){
+    if(!st.running) return;
+    spawn(); draw();
+    requestAnimationFrame(loop);
+  }
+
+  // input tastiera
+  function key(e){
+    if(!document.body.contains(cv)) { window.removeEventListener('keydown',key); return; }
+    if(e.key==='ArrowLeft') st.skier.vx=-2.2;
+    if(e.key==='ArrowRight') st.skier.vx=2.2;
+    if(e.key==='ArrowUp') st.skier.jumping=18;
+  }
+  window.addEventListener('keydown', key);
+
+  // touch: swipe orizzontale e tap per salto
+  cv.addEventListener('touchstart', e=>{ st.lastTouch = e.touches[0].clientX; st.skier.jumping=18; }, {passive:true});
+  cv.addEventListener('touchmove', e=>{
+    const x = e.touches[0].clientX;
+    const dx = x - (st.lastTouch??x);
+    st.lastTouch = x;
+    st.skier.vx = Math.max(-3, Math.min(3, dx*0.06));
+  }, {passive:true});
+  cv.addEventListener('touchend', ()=>{ st.skier.vx = 0; });
+
+  window['skiStart']=(who)=>{ if(who!==id) return; reset(); st.running=true; loop(); };
+  window['skiPause']=(who)=>{ if(who!==id) return; st.running=false; };
+}
+
+/* =========================================================
+   ==============  SOLITAIRE (KLONDIKE LITE)  ==============
+   =========================================================
+   - Stack & regole base, draw 1, tap-seleziona / tap-dest.
+   - Drag base opzionale (mouse/touch).
+   - Obiettivo: muovere tutte le carte alle 4 foundation.
+*/
+function openSol(){
+  const id='app_sol';
+  if(document.getElementById(id)) { bringToFront(id); return; }
+
+  const content = `
+    <div class="sol-wrap">
+      <div class="sol-toolbar">
+        <button class="win-btn" onclick="solNew('${id}')">New</button>
+        <button class="win-btn" onclick="solAuto('${id}')">Auto</button>
+        <div class="ms-display" id="${id}_score">000</div>
+      </div>
+      <div class="sol-table" id="${id}_table">
+        <div class="row" style="margin-bottom:12px">
+          <div class="stock" id="${id}_stock" title="Stock"></div>
+          <div class="waste" id="${id}_waste" title="Waste"></div>
+          <div style="flex:1"></div>
+          <div class="foundation" id="${id}_f0" title="Foundation ♠"></div>
+          <div class="foundation" id="${id}_f1" title="Foundation ♥"></div>
+          <div class="foundation" id="${id}_f2" title="Foundation ♣"></div>
+          <div class="foundation" id="${id}_f3" title="Foundation ♦"></div>
+        </div>
+        <div class="row">
+          <div class="pile" id="${id}_p0"></div>
+          <div class="pile" id="${id}_p1"></div>
+          <div class="pile" id="${id}_p2"></div>
+          <div class="pile" id="${id}_p3"></div>
+          <div class="pile" id="${id}_p4"></div>
+          <div class="pile" id="${id}_p5"></div>
+          <div class="pile" id="${id}_p6"></div>
+        </div>
+      </div>
+      <div style="font-size:12px; margin-top:6px">Regole: Colonne decrescenti alternando colore. Fondazioni da Asso a Re. Tocca una carta per selezionarla, poi tocca la destinazione. Tocca Stock per pescare 1.</div>
+    </div>
+  `;
+  makeWindow('Solitaire', content, id);
+
+  const st = (window['_sol_'+id] = {
+    deck:[], stock:[], waste:[], piles:[[],[],[],[],[],[],[]], found:[[],[],[],[]], score:0, select:null
+  });
+
+  function newDeck(){
+    const suits = ['S','H','C','D']; // ♠ ♥ ♣ ♦
+    const deck=[];
+    for(const s of suits){
+      for(let r=1;r<=13;r++){
+        deck.push({s, r, up:false, id: s+String(r)+'_'+Math.random().toString(36).slice(2,7)});
+      }
+    }
+    // shuffle
+    for(let i=deck.length-1;i>0;i--){
+      const j=(Math.random()* (i+1))|0; [deck[i],deck[j]]=[deck[j],deck[i]];
+    }
+    return deck;
+  }
+
+  function layout(){
+    const t = document.getElementById(id+'_table');
+    // pulisci
+    [...t.querySelectorAll('.card')].forEach(e=>e.remove());
+
+    const posPile = (colIdx, idxInCol)=>{
+      // y offset per colonna
+      return {x: colIdx*(96+8), y: 180 + idxInCol*24};
+    };
+
+    // stock
+    st.stock.forEach((c, i)=>{
+      placeCard(id+'_stock', c, 0, 0, false);
+    });
+
+    // waste: mostra ultima up
+    st.waste.forEach((c, i)=>{
+      placeCard(id+'_waste', c, i*8, 0, true);
+    });
+
+    // foundation
+    for(let f=0; f<4; f++){
+      const arr = st.found[f];
+      arr.forEach((c,i)=>{
+        placeCard(id+'_f'+f, c, 0, 0, true);
+      });
+    }
+
+    // piles
+    for(let p=0;p<7;p++){
+      const col = st.piles[p];
+      col.forEach((c,i)=>{
+        const pos = posPile(p,i);
+        placeCard(id+'_p'+p, c, 0, i*24, c.up);
+      });
+    }
+
+    document.getElementById(id+'_score').textContent = String(st.score).padStart(3,'0');
+  }
+
+  function placeCard(containerId, card, dx, dy, faceup){
+    const box = document.getElementById(containerId);
+    const el = document.createElement('div');
+    el.className='card'+(faceup?' faceup':' back');
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    el.dataset.cid = card.id;
+    if(faceup){
+      const {rankStr, suitChar, colorCls} = cardFace(card);
+      el.innerHTML = `<div class="rank ${colorCls}">${rankStr}</div>
+                      <div class="suit ${colorCls}" style="text-align:center">${suitChar}</div>
+                      <div class="rank ${colorCls}" style="text-align:right;transform:rotate(180deg)">${rankStr}</div>`;
+    }else{
+      el.innerHTML = `<div class="rank" style="color:#fff">W31</div>
+                      <div class="suit" style="color:#fff;text-align:center">★</div>
+                      <div class="rank" style="color:#fff;text-align:right;transform:rotate(180deg)">W31</div>`;
+    }
+    el.addEventListener('click', ()=> cardTap(card));
+    box.appendChild(el);
+  }
+
+  function cardFace(c){
+    const rankStr = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'][c.r-1];
+    const suitChar = (c.s==='S'?'♠':c.s==='H'?'♥':c.s==='C'?'♣':'♦');
+    const colorCls = (c.s==='H'||c.s==='D')? 'red' : 'black';
+    return {rankStr,suitChar,colorCls};
+  }
+
+  function deal(){
+    st.deck = newDeck();
+    st.stock = []; st.waste=[]; st.piles=[[],[],[],[],[],[],[]]; st.found=[[],[],[],[]]; st.score=0; st.select=null;
+
+    for(let col=0; col<7; col++){
+      for(let j=0;j<=col;j++){
+        const c = st.deck.pop();
+        st.piles[col].push(c);
+      }
+      st.piles[col][st.piles[col].length-1].up = true;
+    }
+    // rimanenti in stock
+    while(st.deck.length){ st.stock.push(st.deck.pop()); }
+    layout();
+  }
+
+  function tapStock(){
+    if(st.stock.length===0){
+      // ricicla waste -> stock (tutte face-down)
+      while(st.waste.length){
+        const c = st.waste.pop(); c.up=false; st.stock.push(c);
+      }
+      layout();
+    }else{
+      const c = st.stock.pop(); c.up=true; st.waste.push(c);
+      st.score++; layout();
+    }
+  }
+
+  function sameColor(a,b){
+    const red = (s)=> s==='H'||s==='D';
+    return red(a.s)===red(b.s);
+  }
+
+  function canMoveToFoundation(c, fIdx){
+    const pile = st.found[fIdx];
+    if(pile.length===0) return c.r===1; // Asso
+    const top = pile[pile.length-1];
+    return c.s===top.s && c.r===top.r+1;
+  }
+
+  function canMoveToTableau(card, destCol){
+    const col = st.piles[destCol];
+    if(col.length===0) return card.r===13; // Re su spazio vuoto
+    const top = col[col.length-1];
+    if(!top.up) return false;
+    // alterna colore e decrescente
+    return !sameColor(card,top) && card.r===top.r-1;
+  }
+
+  function moveToFoundation(fromKind, fromIndex, count, fIdx){
+    // sposta l'ultima carta (count deve essere 1)
+    let c;
+    if(fromKind==='waste'){ c = st.waste.pop(); }
+    else if(fromKind==='pile'){ c = st.piles[fromIndex].pop(); }
+    else return false;
+
+    if(!canMoveToFoundation(c, fIdx)){
+      // undo
+      if(fromKind==='waste') st.waste.push(c);
+      else st.piles[fromIndex].push(c);
+      return false;
+    }
+    st.found[fIdx].push(c);
+    st.score+=5;
+
+    // gira carta scoperta se necessario
+    if(fromKind==='pile'){
+      const col = st.piles[fromIndex];
+      if(col.length && !col[col.length-1].up){ col[col.length-1].up=true; st.score+=5; }
+    }
+
+    layout(); checkWin();
+    return true;
+  }
+
+  function moveToPile(fromKind, fromIndex, startIdxInCol, destCol){
+    // muove una "sequenza" a partire da startIdxInCol (se waste, startIdxInCol è ignorato e count=1)
+    let seq=[];
+    if(fromKind==='waste'){
+      const c = st.waste[st.waste.length-1];
+      seq=[c];
+    }else if(fromKind==='pile'){
+      seq = st.piles[fromIndex].slice(startIdxInCol);
+    }else return false;
+
+    // la prima carta della sequenza deve potersi agganciare
+    const first = seq[0];
+    if(!canMoveToTableau(first, destCol)) return false;
+
+    // applica
+    if(fromKind==='waste'){ st.waste.pop(); }
+    else { st.piles[fromIndex] = st.piles[fromIndex].slice(0,startIdxInCol); }
+
+    st.piles[destCol].push(...seq);
+
+    // gira carta rimasta
+    if(fromKind==='pile'){
+      const col = st.piles[fromIndex];
+      if(col.length && !col[col.length-1].up){ col[col.length-1].up=true; st.score+=5; }
+    }
+
+    st.score+=seq.length;
+    layout(); return true;
+  }
+
+  function whereIs(card){
+    // cerca card e ritorna {kind, index, idxInCol}
+    for(let i=0;i<7;i++){
+      const col=st.piles[i];
+      for(let j=0;j<col.length;j++){
+        if(col[j].id===card.id) return {kind:'pile', index:i, idx:j};
+      }
+    }
+    if(st.waste.length && st.waste[st.waste.length-1].id===card.id) return {kind:'waste', index:null, idx:null};
+    for(let f=0;f<4;f++){
+      const arr=st.found[f]; if(arr.length && arr[arr.length-1].id===card.id) return {kind:'found', index:f, idx:null};
+    }
+    if(st.stock.length && st.stock[st.stock.length-1].id===card.id) return {kind:'stock', index:null, idx:null};
+    return null;
+  }
+
+  function cardTap(card){
+    const loc = whereIs(card);
+    if(!loc) return;
+
+    if(loc.kind==='stock'){ tapStock(); return; }
+
+    // selezione / destinazione
+    if(!st.select){
+      // apri carta coperta nelle colonne
+      if(loc.kind==='pile'){
+        const col = st.piles[loc.index];
+        const c = col[loc.idx];
+        if(!c.up){
+          if(loc.idx===col.length-1){ c.up=true; st.score+=5; layout(); }
+          return;
+        }
+        // seleziona sequenza a partire da questa carta
+        st.select = {from:'pile', col:loc.index, idx:loc.idx};
+        glowSelection(true);
+      }else if(loc.kind==='waste'){
+        st.select = {from:'waste'};
+        glowSelection(true);
+      }else if(loc.kind==='found'){
+        // non si prende dalle foundation in questa versione lite
+        return;
+      }
+    }else{
+      // abbiamo una selezione attiva: prova a muovere verso destinazione
+      const sel = st.select;
+      // fondazioni?
+      if(loc.kind==='found'){
+        const targetF = loc.index;
+        let srcCard;
+        if(sel.from==='waste') srcCard = st.waste[st.waste.length-1];
+        else srcCard = st.piles[sel.col][sel.idx];
+        moveToFoundation(sel.from, sel.col, 1, targetF);
+        st.select=null; glowSelection(false); return;
+      }
+      // colonne?
+      if(loc.kind==='pile'){
+        const destCol = loc.index;
+        if(sel.from==='waste'){
+          moveToPile('waste', null, null, destCol);
+        }else{
+          moveToPile('pile', sel.col, sel.idx, destCol);
+        }
+        st.select=null; glowSelection(false); return;
+      }
+      // tap su stock/waste quando c'è selezione -> annulla
+      st.select=null; glowSelection(false);
+    }
+  }
+
+  function glowSelection(on){
+    // evidenzia ultima carta waste o la sequenza selezionata in pile
+    const t=document.getElementById(id+'_table');
+    [...t.querySelectorAll('.card')].forEach(e=>e.classList.remove('grab'));
+    if(!on || !st.select) return;
+    if(st.select.from==='waste'){
+      const last = st.waste[st.waste.length-1];
+      if(!last) return;
+      const el = t.querySelector(`.card.faceup[data-cid="${last.id}"]`);
+      if(el) el.classList.add('grab');
+    }else{
+      const col = st.piles[st.select.col];
+      for(let j=st.select.idx;j<col.length;j++){
+        const el = t.querySelector(`.card[data-cid="${col[j].id}"]`);
+        if(el) el.classList.add('grab');
+      }
+    }
+  }
+
+  function autoMoveOnce(){
+    // prova a spostare automaticamente da waste/piles a foundation
+    // priorità: A -> foundation, poi carte successive
+    // waste
+    const w = st.waste[st.waste.length-1];
+    if(w){
+      for(let f=0;f<4;f++){ if(moveToFoundation('waste',null,1,f)) return true; }
+    }
+    // piles
+    for(let p=0;p<7;p++){
+      const col=st.piles[p]; if(!col.length) continue;
+      const top=col[col.length-1]; if(!top.up) continue;
+      for(let f=0;f<4;f++){ if(moveToFoundation('pile',p,1,f)) return true; }
+    }
+    return false;
+  }
+
+  function checkWin(){
+    const total = st.found[0].length + st.found[1].length + st.found[2].length + st.found[3].length;
+    if(total===52){ setTimeout(()=>alert('Solitaire completato! 🏆'), 60); }
+  }
+
+  // API bottoni
+  window['solNew']=(who)=>{ if(who!==id) return; deal(); };
+  window['solAuto']=(who)=>{ if(who!==id) return; let moved=true, guard=0; while(moved && guard<200){ moved = autoMoveOnce(); guard++; } };
+
+  // inizializza
+  deal();
+}
+
+/* =========================================================
+   ====== WIRING openApp PER I GIOCHI (override) ===========
+   ========================================================= */
+const _openAppPrev3 = window.openApp;
+window.openApp = function(name){
+  const winId='app_'+name;
+  if(document.getElementById(winId)){ bringToFront(winId); return; }
+  switch(name){
+    case 'mine': openMine(); break;
+    case 'ski': openSki(); break;
+    case 'sol': openSol(); break;
+    default: _openAppPrev3(name);
+  }
+};
+</script>
