@@ -2005,3 +2005,89 @@ window.openApp = function(name){
   }
 };
 </script>
+<script>
+/* ==== FIX PACK iOS + ICON FALLBACK + TAP-OPEN ==== */
+(function(){
+  const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent);
+
+  /* 1) Fallback per icone esterne che non caricano */
+  const ICON_DATA = {
+    folder: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB4PSIyIiB5PSI4IiB3aWR0aD0iMjgiIGhlaWdodD0iMjIiIHJ4PSIyIiBmaWxsPSIjYzBjMGMwIiBzdHJva2U9IiM0MDQwNDAiLz48cmVjdCB4PSIyIiB5PSI2IiB3aWR0aD0iMTAiIGhlaWdodD0iNCIgZmlsbD0iI2U4ZThlOCIgc3Ryb2tlPSIjNDA0MDQwIi8+PC9zdmc+",
+    gear:   "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSI2IiBmaWxsPSIjYzBjMGMwIiBzdHJva2U9IiM0MDQwNDAiLz48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIyIiBmaWxsPSIjZmZmIi8+PHBhdGggZD0iTTE2IDJWMm0wIDI4VjI4TTIgMTZoMHoyOCIgIHN0cm9rZT0iIzQwNDA0MCIvPjwvc3ZnPg==",
+    file:   "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB4PSI2IiB5PSI0IiB3aWR0aD0iMjAiIGhlaWdodD0iMjQiIHJ4PSIyIiBmaWxsPSIjZmZmIiBzdHJva2U9IiM0MDQwNDAiLz48bGluZSB4MT0iOCIgeTE9IjEwIiB4Mj0iMjQiIHkyPSIxMCIgc3Ryb2tlPSIjYzBjMGMwIi8+PGxpbmUgeDE9IjgiIHkxPSIxNCIgeDI9IjI0IiB5Mj0iMTQiIHN0cm9rZT0iI2MwYzBjMCIvPjxsaW5lIHgxPSI4IiB5MT0iMTgiIHgyPSIyNCIgeTI9IjE4IiBzdHJva2U9IiNjMGMwYzAiLz48L3N2Zz4=",
+    globe:  "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxMiIgZmlsbD0iI2MwYzBjMCIgc3Ryb2tlPSIjNDA0MDQwIi8+PHBhdGggZD0iTTE2IDRjNCA0IDQgMjAgMCAyMC00LTQtNC0yMCAwLTIwIiBmaWxsPSJub25lIiBzdHJva2U9IiM0MDQwNDAiLz48bGluZSB4MT0iNCIgeTE9IjE2IiB4Mj0iMjgiIHkyPSIxNiIgc3Ryb2tlPSIjNDA0MDQwIi8+PC9zdmc+"
+  };
+
+  // imposta fallback su tutte le immagini delle icone desktop e program manager
+  function applyIconFallback(){
+    document.querySelectorAll('.icon img, .prog-icon img').forEach(img=>{
+      if(img.dataset.fixed) return;
+      img.addEventListener('error', ()=>{
+        const alt = (img.closest('.icon')?.dataset.app) || '';
+        if(alt==='main' || alt==='accessories' || alt==='games') img.src = ICON_DATA.folder;
+        else if(alt==='netscape') img.src = ICON_DATA.globe;
+        else img.src = ICON_DATA.file;
+      }, {once:true});
+      img.dataset.fixed = '1';
+    });
+  }
+  applyIconFallback();
+
+  /* 2) iOS: apri con TAP singolo se l’icona è già selezionata (nessun bisogno di doppio-tap) */
+  function enableSingleTapOpen(){
+    // desktop icons (gruppi)
+    document.querySelectorAll('.icon').forEach(ic=>{
+      ic.addEventListener('click', ()=>{
+        // primo tap: seleziona
+        document.querySelectorAll('.icon').forEach(i=>i.classList.remove('selected'));
+        ic.classList.add('selected');
+        // secondo tap entro 700ms: apri
+        clearTimeout(ic._tapTimer);
+        ic._tapTimer = setTimeout(()=>{ ic._lastTap = 0; },700);
+        if(ic._lastTap && (Date.now()-ic._lastTap)<700){
+          ic._lastTap = 0;
+          ic.dispatchEvent(new Event('dblclick')); // riusa la logica esistente
+        } else {
+          ic._lastTap = Date.now();
+        }
+      }, {passive:true});
+    });
+    // icone interne ai gruppi (prog-icon)
+    document.addEventListener('click', (e)=>{
+      const el = e.target.closest('.prog-icon');
+      if(!el) return;
+      el.classList.add('selected');
+      clearTimeout(el._tapTimer);
+      el._tapTimer = setTimeout(()=>{ el._lastTap = 0; },700);
+      if(el._lastTap && (Date.now()-el._lastTap)<700){
+        el._lastTap = 0;
+        // apri direttamente l’app, usando lo stesso hook del doppio-tap
+        if(typeof openApp==='function'){
+          openApp(el.dataset.app);
+        }
+      } else {
+        el._lastTap = Date.now();
+      }
+    }, {passive:true});
+  }
+  if(isIOS) enableSingleTapOpen();
+
+  /* 3) assicurati che qualsiasi tap porti in primo piano la finestra */
+  document.addEventListener('click', (e)=>{
+    const w = e.target.closest('.window');
+    if(w){ w.style.zIndex = (window.z = (window.z||10)+1); }
+  }, {passive:true});
+
+  /* 4) se per qualunque motivo openApp è stato sovrascritto male, rimappa i nomi noti */
+  window._w31_verifyApps = function(){
+    const required = ['fileman','control','dos','paint','calc','clock','notepad','charmap','write','sol','mine','ski','netscape','netscape_app'];
+    const missing = required.filter(n => !document.getElementById('app_'+n) && typeof openApp === 'function');
+    // prova apertura/chiusura rapida per inizializzare eventuali handler
+    missing.slice(0,1).forEach(n=>{ try{ openApp(n); setTimeout(()=>{ const w=document.getElementById('app_'+n); if(w) w.remove(); }, 50);}catch{} });
+  };
+
+  // run a breve
+  setTimeout(applyIconFallback, 0);
+  setTimeout(()=>{ if(isIOS) enableSingleTapOpen(); }, 50);
+})();
+</script>
